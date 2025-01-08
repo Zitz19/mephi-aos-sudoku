@@ -39,8 +39,9 @@ void deleteMessageQueue(int messageQueueId);
 int awaitForClientSocket(int serverSocket);
 
 void createWorkerToGenerateField(MainData *data, int clientSocket);
+void createWorkerToRemoveCell(MainData *data, int clientSocket);
 
-void startGame(int *gameStartedFlag, MainData *data, int clientSocket);
+void startGame(MainData *data, int clientSocket);
 
 void clearData(MainData* data);
 void clearMessage(char message[MESSAGE_LENGTH]);

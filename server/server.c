@@ -49,7 +49,6 @@ int main(int argc, char** argv) {
         write(STDIN_FILENO, "Waiting for connection\n", 24);
         clientSocket = awaitForClientSocket(serverSocket);
         
-        int gameStartedFlag = 0;
         MainData data;
         while (1) {
             char buffer[256];
@@ -58,19 +57,24 @@ int main(int argc, char** argv) {
             Command command;
 
             clearMessage(data.message);
-            read(clientSocket, &command, sizeof(command));
+            int is_read = read(clientSocket, &command, sizeof(command));
+            if (is_read < 0) {
+                write(STDERR_FILENO, "Socket read error\n", 18);
+            } else if (is_read == 0) {
+                continue;
+            }
 
             if (strcmp(command.body, "generate") == 0) {
+                startGame(&data, clientSocket);
                 write(clientSocket, &data, sizeof(MainData));
+                continue;
             } else {
-                strcpy(data.message, "Unknown command");
-                write(STDERR_FILENO, "Unknown command", 16);
+                strcpy(data.message, "List of awaible commands: 1. generate");
+                write(STDERR_FILENO, "Unknown command\n", 17);
             }
+            write(clientSocket, &data, sizeof(MainData));
         }
     }
-
-    const char *gameStarted = "GAME STARTED!";
-    write(clientSocket, gameStarted, sizeof(gameStarted));
 
     turnOffSharedMemory(sharedMemoryPointer);
 
@@ -82,6 +86,7 @@ int main(int argc, char** argv) {
 void configureSignalProcessing() {
     signal(SIGTERM, customSignalHandler);
     signal(SIGHUP, customSignalHandler);
+    signal(SIGPIPE, SIG_IGN);
 }
 
 void customSignalHandler(int signum) {
@@ -313,20 +318,17 @@ int awaitForClientSocket(int serverSocket) {
     return clientSocket;
 }
 
-void startGame(int *gameStartedFlag, MainData *data, int clientSocket) {
+void startGame(MainData *data, int clientSocket) {
     clearData(data);
 
-    strcpy(data->message, "The game was started!\n");
-
-    for (int i = 0; i < FIELD_SIZE; i++) {
-        for (int j = 0; j < FIELD_SIZE; j++) {
-            data->field.orig[i][j] = '1' + j;
-        }
-    }
+    // strcpy(data->message, "The game was started!\n");
 
     createWorkerToGenerateField(data, clientSocket);
-    
-    *gameStartedFlag = 1;
+
+    int removedNum = 40 + (getRandomInt() % 21);
+    for (int i = 0; i <= removedNum; ++i) {
+        createWorkerToRemoveCell(data, clientSocket);
+    }
 }
 
 void createWorkerToGenerateField(MainData *data, int clientSocket) {
@@ -342,6 +344,7 @@ void createWorkerToGenerateField(MainData *data, int clientSocket) {
         for (int i = 0; i < FIELD_SIZE; i++) {
             for (int j = 0; j < FIELD_SIZE; j++) {
                 data->field.orig[i][j] = ptr->field.orig[i][j];
+                data->field.mask[i][j] = ptr->field.mask[i][j];
             }
         }
 
@@ -353,9 +356,52 @@ void createWorkerToGenerateField(MainData *data, int clientSocket) {
         
         MainData* ptr;
         connectSharedMemory(&ptr, sharedMemoryId);
+
+        generateBasicField(ptr->field.orig);
+        generateBasicField(ptr->field.mask);
+        mixField(ptr->field.orig, getRandomInt() % 10);
+        for (int i = 0; i < FIELD_SIZE; i++) {
+            for (int j = 0; j < FIELD_SIZE; j++) {
+                ptr->field.orig[i][j] = ptr->field.mask[i][j];
+            }
+        }
+
+        freeSemaphore(semaphoreId);
+
+        close(clientSocket);
+        close(serverSocket);
+        exit(0);
+    }
+}
+
+void createWorkerToRemoveCell(MainData *data, int clientSocket) {
+    pid_t childPid = fork();
+    
+    if (childPid) {
+    //master process
+        waitpid(childPid, NULL, 0);
+        captureSemaphore(semaphoreId);
+        
+        MainData* ptr;
+        connectSharedMemory(&ptr, sharedMemoryId);
+        for (int i = 0; i < FIELD_SIZE; i++) {
+            for (int j = 0; j < FIELD_SIZE; j++) {
+                data->field.mask[i][j] = ptr->field.mask[i][j];
+            }
+        }
+
+        freeSemaphore(semaphoreId);
+    } else {
+    //worker process
+
+        captureSemaphore(semaphoreId);
+        
+        MainData* ptr;
+        connectSharedMemory(&ptr, sharedMemoryId);
+
         Coords removed;
         do {
-            removed = generateNewField();
+            removed = removeCell();
         } while (ptr->field.mask[removed.x][removed.y] == ' ');
         ptr->field.mask[removed.x][removed.y] = ' ';
 

@@ -1,5 +1,7 @@
 #include "client.h"
 
+void printCombinedField(char first[9][9], char second[9][9]);
+
 int main(int argc, char** argv) {
     if (argc != 3) {
         write(STDERR_FILENO, "Incorrect arguments input! It should be ./client hostname port", 63);
@@ -18,6 +20,11 @@ int main(int argc, char** argv) {
 
         //TODO normal input
         scanf("%s", body);
+
+        if (strcmp(body, "quit") == 0) {
+            close(clientSocket);
+            exit(0);
+        }
         
         Command command;
         strcpy(command.body, body);
@@ -36,6 +43,25 @@ int main(int argc, char** argv) {
     }
 
     close(clientSocket);
+}
+
+void printCombinedField(char first[9][9], char second[9][9]) {
+    for (int i = 0; i < 9; ++i) {
+        for (int j = 0; j < 9; ++j) {
+            putchar(first[i][j]);
+            putchar(' ');
+        }
+        putchar('\n');
+    }
+    putchar('\n');
+    for (int i = 0; i < 9; ++i) {
+        for (int j = 0; j < 9; ++j) {
+            putchar(second[i][j]);
+            putchar(' ');
+        }
+        putchar('\n');
+    }
+    putchar('\n');
 }
 
 void createAndConfigureSocket(int *clientSocket, char *hostname, int port) {
